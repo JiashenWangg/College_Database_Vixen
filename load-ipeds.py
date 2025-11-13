@@ -27,6 +27,7 @@ def insert_data(df):
         user=username,
         password=password)
 
+
     # Create cursor object
     cursor = conn.cursor()
 
