@@ -2,7 +2,10 @@
 Unified loader for yearly Students, Financials, and Academics tables.
 
 Usage:
-    python load-scorecard_copy.py ../data/scorecard/scorecard_test_2022.csv
+    python load-scorecard_copy.py ../data/scorecard/scorecard_2022.csv
+
+Note:
+    - Rename csv files to end with 4-digit year, e.g., scorecard_2022.csv
 """
 
 import sys
@@ -46,9 +49,7 @@ def build_students_rows(df, year):
             clean(rec.get("UGDS")),
             clean(rec.get("ACTCMMID")),
             clean(rec.get("CDR2")),
-            clean(rec.get("CDR3")),
-            clean(rec.get("FIRSTGEN")),
-            clean(rec.get("FAMINC")),
+            clean(rec.get("CDR3"))
         ))
     return rows
 
@@ -102,8 +103,8 @@ def main():
 
     # SQL
     students_sql = ("INSERT INTO Students (institution_id, year, adm_rate, "
-                    "num_students, act, cdr2, cdr3, first_gen, "
-                    "avg_family_income) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)")
+                    "num_students, act, cdr2, cdr3) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s)")
     financials_sql = ("INSERT INTO Financials (institution_id, year, "
                       "tuitionfee_in, tuitionfee_out, tuitionfee_prog, "
                       "tuitfte, avgfacsal) VALUES (%s,%s,%s,%s,%s,%s,%s)")
@@ -127,7 +128,7 @@ def main():
         try:
             cursor.execute(students_sql, row)
             inserted["Students"] += 1
-            if i % 10 == 0:
+            if i % 100 == 0:
                 print(f"   Students: {i} rows processed...")
         except Exception as e:
             conn.rollback()
@@ -140,7 +141,7 @@ def main():
         try:
             cursor.execute(financials_sql, row)
             inserted["Financials"] += 1
-            if i % 10 == 0:
+            if i % 100 == 0:
                 print(f"   Financials: {i} rows processed...")
         except Exception as e:
             conn.rollback()
@@ -153,7 +154,7 @@ def main():
         try:
             cursor.execute(academics_sql, row)
             inserted["Academics"] += 1
-            if i % 10 == 0:
+            if i % 100 == 0:
                 print(f"   Academics: {i} rows processed...")
         except Exception as e:
             conn.rollback()
