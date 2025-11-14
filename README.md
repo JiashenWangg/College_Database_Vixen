@@ -1,406 +1,369 @@
-# College_Database_Vixen
-# College Database Project
+# College Database Project -- Vixen
 
-A comprehensive PostgreSQL database system for analyzing U.S. higher education institutions, designed to help prospective students, families, and admissions professionals make informed decisions about college selection and planning.
+## Overview
 
-## Project Overview
+This project creates a comprehensive PostgreSQL database for tracking college and university data across the United States. The database is designed to help **prospective students and their families** make informed decisions about college selection, as well as assist **admissions professionals** in understanding institutional trends and benchmarking against peer institutions.
 
-This database integrates data from two authoritative sources:
-- **IPEDS (Integrated Postsecondary Education Data System)**: Institutional characteristics and basic information
-- **College Scorecard**: Annual performance metrics including student outcomes, financials, and academics
+## Database Purpose
 
-The system tracks over 6,000 institutions across multiple years (2018-2025), providing a rich dataset for comparative analysis and decision-making.
+The database consolidates data from two primary sources:
+- **IPEDS (Integrated Postsecondary Education Data System)** - Institutional characteristics
+- **College Scorecard** - Annual performance metrics (2018-2021)
+
+This allows users to:
+- Compare colleges based on admissions rates, costs, and outcomes
+- Track trends in tuition, student demographics, and academic offerings over time
+- Identify colleges by location, Carnegie classification, and institutional control
+- Analyze student loan default rates and first-generation student populations
+- Evaluate faculty salaries and student-to-faculty ratios
 
 ## Database Schema
 
-Our schema is organized into four primary entities, each capturing a distinct aspect of higher education institutions:
+### Entity Design Philosophy
 
-### 1. **Institutions Table** (Master Reference)
-Stores static institutional characteristics that rarely change:
-- **Purpose**: Centralized reference table for basic college information
-- **Primary Key**: `institution_id` (8-digit OPEID code)
-- **Key Attributes**:
-  - Name, accrediting agency, control type (public/private/proprietary)
-  - Carnegie Classification (research activity level)
-  - Geographic information (region, CBSA, county, city, state)
-  - Physical location (address, coordinates)
+The database uses a **normalized schema** with four main entities, each serving a distinct purpose:
 
-**Why separate?** This design enables efficient one-to-many joins with temporal tables while avoiding data redundancy for information that doesn't change annually.
+1. **Institutions** (Master Table)
+   - Stores relatively static institutional characteristics
+   - One-to-many relationship with all other tables
+   - Primary key: `institution_id` (OPEID code)
 
-### 2. **Students Table** (Annual Snapshots)
-Tracks student body characteristics and outcomes by year:
-- **Primary Key**: `(institution_id, year)`
-- **Foreign Key**: References `Institutions(institution_id)`
-- **Key Metrics**:
-  - Admission rate
-  - Total enrollment
-  - Average ACT scores
-  - Student loan default rates (2-year and 3-year)
-  - First-generation student percentage
-  - Average family income
+2. **Students** 
+   - Annual student body characteristics and demographics
+   - Tracks admission rates, enrollment, test scores, and student financial backgrounds
+   - Primary key: `(institution_id, year)`
 
-**Use Cases**:
-- Compare selectivity trends over time
-- Assess student body diversity and socioeconomic composition
-- Evaluate loan repayment success rates
+3. **Financials**
+   - Annual financial metrics set by the institution
+   - Includes tuition rates, faculty salaries, and revenue per student
+   - Primary key: `(institution_id, year)`
 
-### 3. **Financials Table** (Annual Cost Data)
-Captures institutional pricing and faculty compensation:
-- **Primary Key**: `(institution_id, year)`
-- **Foreign Key**: References `Institutions(institution_id)`
-- **Key Metrics**:
-  - In-state and out-of-state tuition
-  - Program-specific tuition averages
-  - Net tuition revenue per student
-  - Average faculty salaries
+4. **Academics**
+   - Annual academic program characteristics
+   - Tracks degree offerings and student-to-faculty ratios
+   - Primary key: `(institution_id, year)`
 
-**Use Cases**:
-- Budget planning for prospective students
-- Cost comparison across similar institutions
-- Understanding pricing strategies and trends
-- Faculty compensation analysis
+### Why This Split?
 
-### 4. **Academics Table** (Annual Program Data)
-Tracks degree offerings and classroom metrics:
-- **Primary Key**: `(institution_id, year)`
-- **Foreign Key**: References `Institutions(institution_id)`
-- **Key Metrics**:
-  - Predominant degree awarded (certificate through doctoral)
-  - Highest degree offered
-  - Student-to-faculty ratio
+While all data could theoretically exist in one table, we chose to **separate concerns** for several reasons:
 
-**Use Cases**:
-- Identify institutions by degree level
-- Assess classroom size and faculty availability
-- Compare academic focus across institutions
+- **Query Efficiency**: Users interested in financial data don't need to load student demographic information
+- **Reduced Redundancy**: Institution characteristics don't repeat for every year
+- **Clearer Analysis**: Each table focuses on a specific aspect of institutional performance
+- **Easier Maintenance**: Updates to one aspect don't require touching unrelated data
 
-## Entity-Relationship Design
+## Database Tables
 
-Our schema follows these key principles:
-
-1. **Separation of Concerns**: Each table focuses on a specific domain (institutional identity, student characteristics, finances, academics)
-
-2. **Temporal Design**: Three tables track year-over-year changes while maintaining historical data for trend analysis
-
-3. **Referential Integrity**: Foreign key constraints ensure data consistency and enable reliable joins
-
-4. **Normalized Structure**: Reduces redundancy while maintaining query flexibility
-
-**Relationship Diagram**:
+### Institutions Table
+```sql
+CREATE TABLE Institutions (
+   institution_id TEXT PRIMARY KEY,        -- 8-digit OPEID code
+   name TEXT NOT NULL, 
+   accredagency TEXT,                      -- Accrediting agency (from IPEDS)
+   control INT CHECK (control IN (1, 2, 3)), -- 1=Public, 2=Private nonprofit, 3=Proprietary
+   CCbasic INT CHECK (CCbasic <= 33),      -- Carnegie Classification
+   region INT CHECK (region BETWEEN 0 AND 9),
+   csba TEXT CHECK (LENGTH(csba) = 5),     -- Core Based Statistical Area
+   cba TEXT CHECK (LENGTH(cba) = 5),       -- Combined Statistical Area
+   county_fips TEXT CHECK (LENGTH(county_fips) = 5),
+   city TEXT,
+   state TEXT CHECK (LENGTH(state) = 2),
+   address TEXT,
+   zip INT CHECK (zip > 0),
+   latitude FLOAT,
+   longitude FLOAT
+);
 ```
-Institutions (1) ----< (Many) Students
-      |
-      +-------------< (Many) Financials
-      |
-      +-------------< (Many) Academics
+
+**Data Source**: IPEDS `hd2022.csv` file
+- **Note**: The `accredagency` column requires data from a separate IPEDS accreditation file (currently loaded with a placeholder value)
+
+### Students Table
+```sql
+CREATE TABLE Students (
+   institution_id TEXT REFERENCES Institutions(institution_id),
+   year INT CHECK (year > 0 AND year <= EXTRACT(YEAR FROM CURRENT_DATE)),
+   adm_rate FLOAT CHECK (adm_rate >= 0 AND adm_rate <= 1),
+   num_students INT CHECK (num_students >= 0),  
+   act FLOAT CHECK (act >= 1 AND act <= 36),
+   cdr2 FLOAT CHECK (cdr2 >= 0 AND cdr2 <= 1),  -- 2-year cohort default rate
+   cdr3 FLOAT CHECK (cdr3 >= 0 AND cdr3 <= 1),  -- 3-year cohort default rate
+   first_gen FLOAT CHECK (first_gen >= 0 AND first_gen <= 1),
+   avg_family_income INT CHECK (avg_family_income >= 0),
+   PRIMARY KEY (institution_id, year)
+);
 ```
+
+**Data Source**: College Scorecard MERGED files
+
+### Financials Table
+```sql
+CREATE TABLE Financials (
+   institution_id TEXT REFERENCES Institutions(institution_id),
+   year INT CHECK (year > 0 AND year <= EXTRACT(YEAR FROM CURRENT_DATE)),
+   tuitionfee_in INT CHECK (tuitionfee_in >= 0),
+   tuitionfee_out INT CHECK (tuitionfee_out >= 0),
+   tuitionfee_prog INT CHECK (tuitionfee_prog >= 0),
+   tuitfte INT CHECK (tuitfte >= 0),
+   avgfacsal INT CHECK (avgfacsal >= 0),
+   PRIMARY KEY (institution_id, year)
+);
+```
+
+**Data Source**: College Scorecard MERGED files
+
+### Academics Table
+```sql
+CREATE TABLE Academics (
+   institution_id TEXT REFERENCES Institutions(institution_id),
+   year INT CHECK (year > 0 AND year <= EXTRACT(YEAR FROM CURRENT_DATE)),
+   preddeg TEXT CHECK (preddeg BETWEEN 0 AND 4),
+   highdeg INT CHECK (highdeg BETWEEN 0 AND 4),
+   stufacr FLOAT CHECK (stufacr >= 0 AND stufacr <= 1),
+   PRIMARY KEY (institution_id, year)
+);
+```
+
+**Data Source**: College Scorecard MERGED files
 
 ## Data Loading Process
 
 ### Prerequisites
-```bash
-# Create conda environment
-conda create -n DEpythonsql python=3.13
-conda activate DEpythonsql
 
-# Install required packages
-pip install pandas psycopg2-binary sqlalchemy ipython-sql
+1. **Python Environment**:
+   ```bash
+   conda create -n DEpythonsql python=3.13
+   conda activate DEpythonsql
+   pip install psycopg2-binary pandas
+   ```
+
+2. **Database Connection**:
+   - PostgreSQL database on Azure
+   - Update connection credentials in both loading scripts
+
+3. **Required Data Files**:
+   - `hd2022.csv` - IPEDS institutional directory
+   - `MERGED2018_19_PP.csv` - College Scorecard 2018 data
+   - `MERGED2019_20_PP.csv` - College Scorecard 2019 data
+   - `MERGED2020_21_PP.csv` - College Scorecard 2020 data
+   - `MERGED2021_22_PP.csv` - College Scorecard 2021 data
+
+### Step 1: Create Database Schema
+
+Run the SQL commands in `part1.ipynb` to create all tables with proper constraints and relationships.
+
+```bash
+# In Jupyter notebook
+%load_ext sql
+%sql postgresql://username:password@server:5432/database
 ```
 
-### Step 1: Load IPEDS Institutional Data
+Then execute the cell containing all CREATE TABLE statements.
+
+### Step 2: Load IPEDS Data (Institutions Table)
+
 ```bash
-# Load institution master data (run once)
 python load-ipeds.py hd2022.csv
 ```
 
-**What it does**:
-- Extracts institutional characteristics from IPEDS Directory data
-- Populates the `Institutions` table with ~6,000+ colleges
-- Maps IPEDS fields to database schema:
-  - `OPEID` → `institution_id`
-  - `INSTNM` → `name`
-  - `CONTROL` → `control`
-  - Geographic fields → location attributes
+**What this does**:
+- Reads the IPEDS institutional characteristics file
+- Extracts 15 columns mapping to the Institutions table schema
+- Inserts data for all U.S. postsecondary institutions
+- **Note**: Currently loads `accredagency` as NULL - requires separate IPEDS accreditation file
 
-### Step 2: Load College Scorecard Annual Data
+**Column Mapping**:
+- `OPEID` → `institution_id`
+- `INSTNM` → `name`
+- `CONTROL` → `control`
+- `CCBASIC` → `CCbasic`
+- `OBEREG` → `region`
+- `CBSA` → `csba`
+- `CSA` → `cba`
+- `COUNTYCD` → `county_fips`
+- `CITY` → `city`
+- `STABBR` → `state`
+- `ADDR` → `address`
+- `ZIP` → `zip`
+- `LATITUDE` → `latitude`
+- `LONGITUD` → `longitude`
+
+### Step 3: Load College Scorecard Data
+
+**Option A - Single File**:
 ```bash
-# Load single year
 python load-scorecard.py MERGED2021_22_PP.csv
+```
 
-# Load all years (2018-2021)
+**Option B - All Files at Once**:
+```bash
 python load-scorecard.py .
 ```
 
-**What it does**:
-- Automatically extracts year from filename (e.g., `MERGED2021_22_PP.csv` → 2021)
-- Populates three tables simultaneously:
-  - **Students**: Admission rates, enrollment, test scores, default rates, demographics
-  - **Financials**: Tuition, fees, faculty salaries
-  - **Academics**: Degree levels, student-faculty ratios
-- Handles missing data gracefully (converts to NULL)
-- Provides detailed error reporting for data quality issues
+**What this does**:
+- Automatically extracts the year from the filename (e.g., `MERGED2021_22_PP.csv` → year = 2021)
+- Loads data into Students, Financials, and Academics tables simultaneously
+- Handles missing data by converting invalid values to NULL
+- Provides detailed error reporting for any failed insertions
 
-**Data Cleaning Features**:
-- Converts "PrivacySuppressed" and invalid values to NULL
-- Validates numeric ranges against CHECK constraints
-- Filters out institutions not in the master `Institutions` table (foreign key enforcement)
+**Important File Naming Convention**:
+⚠️ **Files MUST follow the pattern**: `MERGED<YEAR>_<TWO_DIGIT_YEAR>_PP.csv`
 
-## Key Features for Users
+Examples of valid filenames:
+- ✅ `MERGED2021_22_PP.csv` (Year 2021)
+- ✅ `MERGED2018_19_PP.csv` (Year 2018)
+- ❌ `scorecard_2021.csv` (Won't work - wrong format)
+- ❌ `MERGED_2021_PP.csv` (Won't work - missing second year)
+
+The script uses regex pattern matching to extract the year: `MERGED(\d{4})_\d{2}_PP\.csv`
+
+## Data Relationships
+
+### Foreign Key Relationships
+
+```
+Institutions (1) ──────< (Many) Students
+     │
+     ├──────────────────< (Many) Financials
+     │
+     └──────────────────< (Many) Academics
+```
+
+- Each institution can have **multiple years** of student, financial, and academic data
+- Each student/financial/academic record **must reference** a valid institution
+- The `institution_id` (OPEID code) serves as the linking key across all tables
+
+### Data Integrity Constraints
+
+All tables include CHECK constraints to ensure data quality:
+- Rates and percentages must be between 0 and 1
+- Years cannot be in the future
+- Test scores must be within valid ranges
+- Geographic codes must have proper length
+- Financial values cannot be negative
+
+## Use Cases
 
 ### For Prospective Students & Families
 
-**1. Cost Comparison**
-```sql
--- Compare tuition across states for a specific region
-SELECT i.state, AVG(f.tuitionfee_out) as avg_out_state_tuition
-FROM Institutions i
-JOIN Financials f ON i.institution_id = f.institution_id
-WHERE i.region = 5 AND f.year = 2021
-GROUP BY i.state
-ORDER BY avg_out_state_tuition;
-```
+1. **Compare Colleges by Cost**:
+   ```sql
+   SELECT i.name, i.state, f.tuitionfee_in, f.tuitionfee_out
+   FROM Institutions i
+   JOIN Financials f ON i.institution_id = f.institution_id
+   WHERE f.year = 2021 AND i.region = 5
+   ORDER BY f.tuitionfee_in;
+   ```
 
-**2. Selectivity Analysis**
-```sql
--- Find moderately selective schools with good outcomes
-SELECT i.name, i.state, s.adm_rate, s.cdr3
-FROM Institutions i
-JOIN Students s ON i.institution_id = s.institution_id
-WHERE s.year = 2021 
-  AND s.adm_rate BETWEEN 0.4 AND 0.6
-  AND s.cdr3 < 0.05
-ORDER BY s.cdr3;
-```
+2. **Find Schools with High Admission Rates**:
+   ```sql
+   SELECT i.name, s.adm_rate, s.num_students
+   FROM Institutions i
+   JOIN Students s ON i.institution_id = s.institution_id
+   WHERE s.year = 2021 AND s.adm_rate > 0.5
+   ORDER BY s.adm_rate DESC;
+   ```
 
-**3. Affordability for First-Gen Students**
-```sql
--- Schools with high first-gen support and low costs
-SELECT i.name, s.first_gen, f.tuitionfee_in, s.avg_family_income
-FROM Institutions i
-JOIN Students s ON i.institution_id = s.institution_id
-JOIN Financials f ON i.institution_id = f.institution_id 
-WHERE s.year = 2021 AND f.year = 2021
-  AND s.first_gen > 0.3
-  AND f.tuitionfee_in < 15000
-ORDER BY s.first_gen DESC;
-```
+3. **Analyze Student Loan Default Rates**:
+   ```sql
+   SELECT i.name, s.cdr3, s.avg_family_income
+   FROM Institutions i
+   JOIN Students s ON i.institution_id = s.institution_id
+   WHERE s.year = 2021
+   ORDER BY s.cdr3;
+   ```
 
 ### For Admissions Professionals
 
-**1. Competitive Benchmarking**
-```sql
--- Compare institution against peer group
-SELECT i.name, s.adm_rate, s.act, s.num_students, a.stufacr
-FROM Institutions i
-JOIN Students s ON i.institution_id = s.institution_id
-JOIN Academics a ON i.institution_id = a.institution_id
-WHERE i.CCbasic = 15  -- Research Universities
-  AND s.year = 2021 AND a.year = 2021
-  AND i.region = 3
-ORDER BY s.adm_rate;
-```
+1. **Benchmark Against Peer Institutions**:
+   ```sql
+   SELECT i.name, s.adm_rate, a.stufacr, f.avgfacsal
+   FROM Institutions i
+   JOIN Students s ON i.institution_id = s.institution_id
+   JOIN Academics a ON i.institution_id = a.institution_id AND s.year = a.year
+   JOIN Financials f ON i.institution_id = f.institution_id AND s.year = f.year
+   WHERE s.year = 2021 AND i.CCbasic = 15  -- Research Universities
+   ORDER BY s.adm_rate;
+   ```
 
-**2. Trend Analysis**
-```sql
--- Track enrollment trends over time
-SELECT year, SUM(num_students) as total_enrollment
-FROM Students
-WHERE institution_id = '001002'  -- Specific institution
-GROUP BY year
-ORDER BY year;
-```
+2. **Track Enrollment Trends**:
+   ```sql
+   SELECT year, AVG(num_students) as avg_enrollment
+   FROM Students
+   WHERE institution_id = '001002'
+   GROUP BY year
+   ORDER BY year;
+   ```
 
-**3. Pricing Strategy Analysis**
-```sql
--- Net revenue efficiency
-SELECT i.name, f.tuitfte, s.num_students, 
-       (f.tuitfte * s.num_students) as total_revenue
-FROM Institutions i
-JOIN Financials f ON i.institution_id = f.institution_id
-JOIN Students s ON i.institution_id = s.institution_id
-WHERE f.year = 2021 AND s.year = 2021
-  AND i.control = 1  -- Public institutions
-ORDER BY total_revenue DESC;
-```
+3. **Regional Analysis**:
+   ```sql
+   SELECT i.region, COUNT(*) as num_colleges, 
+          AVG(f.tuitionfee_out) as avg_tuition
+   FROM Institutions i
+   JOIN Financials f ON i.institution_id = f.institution_id
+   WHERE f.year = 2021
+   GROUP BY i.region;
+   ```
 
-## Data Integrity & Constraints
+## Known Limitations & Future Work
 
-### CHECK Constraints
-- **Control types**: Limited to (1=Public, 2=Private nonprofit, 3=Proprietary)
-- **Rates**: All percentage fields constrained between 0.0 and 1.0
-- **ACT scores**: Range 1-36
-- **Years**: Cannot exceed current year
-- **Counts**: All student/financial counts must be non-negative
-- **Geographic codes**: State codes must be 2 characters, FIPS codes 5 characters
+1. **Accreditation Data**: 
+   - The `accredagency` column in Institutions table currently contains placeholder data
+   - Future work: Load from IPEDS accreditation file to populate actual accrediting agencies
 
-### Foreign Key Constraints
-- All temporal tables reference `Institutions(institution_id)`
-- Ensures data consistency: Cannot insert student/financial/academic data for non-existent institutions
-- Cascade behavior: Institutional changes maintain data integrity
+2. **Year Coverage**: 
+   - Current dataset covers 2018-2021
+   - Can be extended by loading additional MERGED files following the naming convention
 
-### Benefits
-- **Data Quality**: Prevents invalid or impossible values
-- **Query Reliability**: Analysts can trust data ranges
-- **Debugging**: Constraint violations provide immediate feedback during data loading
-
-## Performance Considerations
-
-### Indexing Strategy
-```sql
--- Primary key indexes (automatic)
--- Recommended additional indexes:
-CREATE INDEX idx_institutions_region ON Institutions(region);
-CREATE INDEX idx_institutions_state ON Institutions(state);
-CREATE INDEX idx_institutions_carnegie ON Institutions(CCbasic);
-CREATE INDEX idx_students_year ON Students(year);
-CREATE INDEX idx_financials_year ON Financials(year);
-CREATE INDEX idx_academics_year ON Academics(year);
-```
-
-### Query Optimization
-- Use composite primary keys efficiently for temporal queries
-- Join on indexed foreign keys for best performance
-- Filter by year early in WHERE clauses for time-series analysis
-
-## File Structure
-```
-College_Database_Vixen/
-├── README.md                    # This file
-├── part1.ipynb                  # Schema definition and documentation
-├── load-ipeds.py               # IPEDS data loader
-├── load-scorecard.py           # College Scorecard data loader
-├── hd2022.csv                  # IPEDS institutional data (2022)
-├── MERGED2018_19_PP.csv        # College Scorecard data (2018)
-├── MERGED2019_20_PP.csv        # College Scorecard data (2019)
-├── MERGED2020_21_PP.csv        # College Scorecard data (2020)
-└── MERGED2021_22_PP.csv        # College Scorecard data (2021)
-```
-
-## Database Connection
-
-**Azure PostgreSQL Configuration**:
-```python
-host = "debprodserver.postgres.database.azure.com"
-database = "pramitv"
-user = "pramitv"
-port = 5432
-```
-
-**Connection String**:
-```
-postgresql://pramitv:PASSWORD@debprodserver.postgres.database.azure.com:5432/pramitv
-```
-
-## Common Queries
-
-### Example 1: Regional Cost Analysis
-```sql
--- Average costs by region for public universities
-SELECT i.region,
-       AVG(f.tuitionfee_in) as avg_in_state,
-       AVG(f.tuitionfee_out) as avg_out_state,
-       COUNT(*) as num_schools
-FROM Institutions i
-JOIN Financials f ON i.institution_id = f.institution_id
-WHERE i.control = 1 AND f.year = 2021
-GROUP BY i.region
-ORDER BY i.region;
-```
-
-### Example 2: Academic Excellence with Affordability
-```sql
--- High-performing schools with reasonable costs
-SELECT i.name, i.state, s.act, s.adm_rate, f.tuitionfee_out
-FROM Institutions i
-JOIN Students s ON i.institution_id = s.institution_id
-JOIN Financials f ON i.institution_id = f.institution_id
-WHERE s.year = 2021 AND f.year = 2021
-  AND s.act > 28
-  AND f.tuitionfee_out < 40000
-ORDER BY s.act DESC, f.tuitionfee_out;
-```
-
-### Example 3: Debt Burden Assessment
-```sql
--- Schools with low default rates by control type
-SELECT i.control,
-       AVG(s.cdr3) as avg_default_rate,
-       AVG(f.tuitionfee_prog) as avg_tuition
-FROM Institutions i
-JOIN Students s ON i.institution_id = s.institution_id
-JOIN Financials f ON i.institution_id = f.institution_id
-WHERE s.year = 2021 AND f.year = 2021
-GROUP BY i.control
-ORDER BY avg_default_rate;
-```
+3. **Data Completeness**:
+   - Some institutions may have missing data for certain years or metrics
+   - The loading scripts handle missing values by converting to NULL
 
 ## Troubleshooting
 
 ### Common Issues
 
-**1. Foreign Key Violations**
-```
-Error: violates foreign key constraint
-```
-**Solution**: Ensure IPEDS data is loaded first (creates Institutions table)
+1. **"integer out of range" error**:
+   - Ensure your Institutions table uses TEXT for `institution_id`, not INT
+   - Some OPEID codes exceed INT limits
 
-**2. Integer Out of Range**
+2. **Foreign key constraint violations**:
+   - Run `load-ipeds.py` BEFORE `load-scorecard.py`
+   - Scorecard data references institutions that must exist first
+
+3. **"Year not found in filename" error**:
+   - Verify your College Scorecard files follow the `MERGED<YEAR>_<YR>_PP.csv` pattern
+   - Check that files aren't renamed
+
+4. **Connection timeout**:
+   - These are large files (50-200MB each)
+   - Allow 5-15 minutes per file for loading
+   - Check your network connection to Azure
+
+## Project Structure
+
 ```
-Error: integer out of range
-```
-**Solution**: Database schema uses TEXT for institution_id (OPEID codes can be large)
-
-**3. Check Constraint Violations**
-```
-Error: new row violates check constraint
-```
-**Solution**: Review data cleaning - invalid values should be converted to NULL
-
-### Data Quality Monitoring
-```sql
--- Check for missing data patterns
-SELECT year,
-       COUNT(*) as total_records,
-       SUM(CASE WHEN adm_rate IS NULL THEN 1 ELSE 0 END) as missing_adm_rate,
-       SUM(CASE WHEN act IS NULL THEN 1 ELSE 0 END) as missing_act
-FROM Students
-GROUP BY year
-ORDER BY year;
+College_Database_Vixen/
+├── README.md                    # This file
+├── part1.ipynb                  # Database schema definition
+├── load-ipeds.py               # IPEDS data loader
+├── load-scorecard.py           # College Scorecard data loader
+├── hd2022.csv                  # IPEDS institutional directory
+├── MERGED2018_19_PP.csv        # College Scorecard 2018
+├── MERGED2019_20_PP.csv        # College Scorecard 2019
+├── MERGED2020_21_PP.csv        # College Scorecard 2020
+└── MERGED2021_22_PP.csv        # College Scorecard 2021
 ```
 
-## Future Enhancements
+## Contributors
 
-1. **Additional Tables**:
-   - Program-level data (majors, degrees by field)
-   - Earnings outcomes by major
-   - Racial/ethnic diversity metrics
-   - Graduate program information
-
-2. **Derived Metrics**:
-   - Return on investment calculations
-   - Peer group comparisons
-   - Trend indicators (improving/declining)
-
-3. **Data Visualization**:
-   - Dashboard integration (Tableau, PowerBI)
-   - Geographic mapping of institutions
-   - Time-series charts
+Pramit V. - Database design and ETL development
 
 ## Data Sources
 
 - **IPEDS**: U.S. Department of Education, National Center for Education Statistics
 - **College Scorecard**: U.S. Department of Education
 
-## License & Usage
+## License
 
-This database is designed for educational and research purposes. Source data is publicly available from federal government databases. Please cite original data sources in any derivative works.
-
-## Support & Contact
-
-For questions about the database structure or queries, refer to [`part1.ipynb`](part1.ipynb ) for detailed schema documentation and design rationale.
-
----
-
-**Last Updated**: November 2025  
-**Database Version**: 1.0  
-**Record Count**: ~6,000+ institutions, 4 years of temporal data (2018-2021)
+Data sourced from public U.S. government databases. This project is for educational purposes.
