@@ -1,37 +1,24 @@
 """
-Command-line ETL loader for the IPEDS "hd2022.csv" header file -> Institutions
+Load IPEDS HD2022 data into Institutions table
 
 Call:
     python load-ipeds.py ../data/ipeds/hd2022.csv
+Note:
+    - The csv file should be the most recent HD data (hd2022.csv)
 """
 import sys
 import pandas as pd
 import psycopg
 
 
-COLUMN_MAP = {
-    "institution_id": "UNITID",
-    "name": "INSTNM",
-    "accredagency": "",  # Not available in hd2022.csv
-    "control": "CONTROL",
-    "CCbasic": "C21BASIC",
-    "region": "OBEREG",
-    "csba": "CBSA",
-    "cba": "CSA",
-    "county_fips": "COUNTYCD",
-    "city": "CITY",
-    "state": "STABBR",
-    "address": "ADDR",
-    "zip": "ZIP",
-    "latitude": "LATITUDE",
-    "longitude": "LONGITUD",
-}
-
-
 def clean(value):
     '''
     Cleans a value from the IPEDS dataset
-    by converting known missing value indicators to None.
+    by converting known missing value indicators to None
+    Input:
+        value: any
+    Output:
+        value or None
     '''
     if value is None:
         return None
@@ -48,14 +35,17 @@ def clean(value):
 
 
 def to_row(rec):
-    '''Converts a record from IPEDS into a tuple for insertion'''
-    # Find the correct columns for institution_id and name
-    uid_col = next((c for c in rec.keys() if "UNITID" in c.upper()), None)
-    instnm_col = next((c for c in rec.keys() if "INSTNM" in c.upper()), None)
+    '''
+    Converts a record from IPEDS into a tuple for insertion
+    Input:
+        rec: dict, a record from the IPEDS dataset
+    Output:
+        tuple, a row for Institutions table
+    '''
     return (
-        clean(rec.get(uid_col)),
-        clean(rec.get(instnm_col)),
-        None,
+        clean(rec.get("UNITID")),
+        clean(rec.get("INSTNM")),
+        None,  # accredagency to be updated later in load-scorecard.py
         clean(rec.get("CONTROL")),
         clean(rec.get("C21BASIC")),
         clean(rec.get("OBEREG")),
@@ -99,6 +89,7 @@ def main():
     inserted = 0
 
     # Insert rows
+    print("Inserting rows into Institutions...")
     with conn.transaction():
         for i, row in enumerate(rows, start=1):
             try:
@@ -113,7 +104,8 @@ def main():
     conn.commit()
     cursor.close()
     conn.close()
-    print(f"Done. {inserted} of {len(rows)} rows inserted successfully.")
+    print(f"Done. {inserted} of {len(rows)} records inserted into "
+          f"Institutions successfully.")
 
 
 if __name__ == "__main__":

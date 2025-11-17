@@ -1,12 +1,16 @@
 """
-Unified loader for yearly Students, Financials, and Academics tables.
+Update accredagency in Institutions table and
+Load data for yearly Students, Financials, and Academics tables
 
 Usage:
+    python load-scorecard.py ../data/scorecard/scorecard_2019.csv
+    python load-scorecard.py ../data/scorecard/scorecard_2020.csv
+    python load-scorecard.py ../data/scorecard/scorecard_2021.csv
     python load-scorecard.py ../data/scorecard/scorecard_2022.csv
 
 Note:
     - Rename csv files to end with 4-digit year, e.g., scorecard_2022.csv
-    - Run the script for each year file(2019-2022)
+    - Run the script for each year file by chronological order (2019-2022)
 """
 
 import sys
@@ -15,7 +19,13 @@ import psycopg
 
 
 def clean(value):
-    """Convert -999, blanks, and NULL to None."""
+    """
+    Convert -999, blanks, and NULL to None
+    Input:
+        value: any
+    Output:
+        cleaned value or None
+    """
     if value is None or pd.isna(value):
         return None
     if isinstance(value, str):
@@ -29,7 +39,13 @@ def clean(value):
 
 
 def extract_year(path):
-    """Extract 4-digit year from filename"""
+    """
+    Extract 4-digit year from filename
+    Input:
+        path: str, path to the CSV file
+    Output:
+        year: int, 4-digit year
+    """
     filename = path.split("/")[-1]
     filename = filename.split(".")[0]
     parts = filename.split("_")
@@ -40,7 +56,14 @@ def extract_year(path):
 
 
 def build_students_rows(df, year):
-    """Build rows for Students table"""
+    """
+    Build rows for Students table
+    Input:
+        df: pandas.DataFrame, the data to process
+        year: int, 4-digit year
+    Output:
+        rows: list of tuples, each tuple is a row for Students table
+    """
     rows = []
     for _, rec in df.iterrows():
         rows.append((
@@ -56,7 +79,14 @@ def build_students_rows(df, year):
 
 
 def build_financials_rows(df, year):
-    """Build rows for Financials table"""
+    """
+    Build rows for Financials table
+    Input:
+        df: pandas.DataFrame, the data to process
+        year: int, 4-digit year
+    Output:
+        rows: list of tuples, each tuple is a row for Financials table
+    """
     rows = []
     for _, rec in df.iterrows():
         rows.append((
@@ -72,7 +102,14 @@ def build_financials_rows(df, year):
 
 
 def build_academics_rows(df, year):
-    """Build rows for Academics table"""
+    """
+    Build rows for Academics table
+    Input:
+        df: pandas.DataFrame, the data to process
+        year: int, 4-digit year
+    Output:
+        rows: list of tuples, each tuple is a row for Academics table
+    """
     rows = []
     for _, rec in df.iterrows():
         rows.append((
@@ -86,6 +123,10 @@ def build_academics_rows(df, year):
 
 
 def main():
+    '''
+    Updates accredagency in Institutions table and
+    inserts data into Students, Financials, and Academics tables.
+    '''
     # Load the CSV file
     csv_path = sys.argv[1]
     year = extract_year(csv_path)
@@ -100,6 +141,8 @@ def main():
     academics_rows = build_academics_rows(data, year)
 
     # SQL statements
+    accredagency_sql = ("UPDATE Institutions SET accredagency = %s "
+                        "WHERE institution_id = %s")
     students_sql = ("INSERT INTO Students (institution_id, year, adm_rate, "
                     "num_students, act, cdr2, cdr3) "
                     "VALUES (%s,%s,%s,%s,%s,%s,%s)")
@@ -118,9 +161,34 @@ def main():
         password=""
     )
     cursor = conn.cursor()
-    inserted = {"Students": 0, "Financials": 0, "Academics": 0}
 
+    updated = 0
+    print("Updating accredagency in Institutions...")
+    try:
+        # Update rows for accredagency
+        for i, row in data.iterrows():
+            accredagency = clean(row["ACCREDAGENCY"])
+            unitid = row["UNITID"]
+            try:
+                cursor.execute(accredagency_sql, (accredagency, unitid))
+                if cursor.rowcount > 0:
+                    updated += cursor.rowcount
+                if (i + 1) % 500 == 0:
+                    print(f"Updated {i + 1} records of accredagency in "
+                          f"Institutions...")
+            except Exception as e:
+                print(f"[ERROR] Row {i+1} (UNITID={unitid}) failed: {e}")
+                raise
+        conn.commit()
+        print(f"Done. {updated} records of accredagency in Institutions "
+              f"updated successfully.")
+    except Exception as e:
+        conn.rollback()
+        print(f"Update of accredagency in Institutions failed: {e}")
+
+    inserted = {"Students": 0, "Financials": 0, "Academics": 0}
     # Insert rows
+    print("Inserting into Students...")
     for i, row in enumerate(students_rows, start=1):
         cursor.execute(check_sql, (row[0],))
         if cursor.fetchone() is None:
@@ -134,6 +202,10 @@ def main():
             conn.rollback()
             print(f"[ERROR] Students row {i} failed: {e}")
             sys.exit(1)
+    conn.commit()
+    print(f"Done. Inserted {inserted['Students']} records into Students")
+
+    print("Inserting into Financials...")
     for i, row in enumerate(financials_rows, start=1):
         cursor.execute(check_sql, (row[0],))
         if cursor.fetchone() is None:
@@ -147,6 +219,10 @@ def main():
             conn.rollback()
             print(f"[ERROR] Financials row {i} failed: {e}")
             sys.exit(1)
+    conn.commit()
+    print(f"Done. Inserted {inserted['Financials']} records into Financials")
+
+    print("Inserting into Academics...")
     for i, row in enumerate(academics_rows, start=1):
         cursor.execute(check_sql, (row[0],))
         if cursor.fetchone() is None:
@@ -160,13 +236,11 @@ def main():
             conn.rollback()
             print(f"[ERROR] Academics row {i} failed: {e}")
             sys.exit(1)
-
     conn.commit()
+    print(f"Done. Inserted {inserted['Academics']} records into Academics")
     cursor.close()
     conn.close()
-    print(f"Inserted {inserted['Students']} rows to Students.")
-    print(f"Inserted {inserted['Financials']} rows to Financials.")
-    print(f"Inserted {inserted['Academics']} rows to Academics.")
+    print(f"All insertions done for year {year}.")
 
 
 if __name__ == "__main__":
