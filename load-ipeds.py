@@ -1,72 +1,117 @@
-import psycopg2
-import pandas as pd
+"""
+Command-line ETL loader for the IPEDS "hd2022.csv" header file -> Institutions
+
+Call:
+    python load-ipeds.py ../data/ipeds/hd2022.csv
+"""
 import sys
+import pandas as pd
+import psycopg
 
 
-# Load data from source file
-def load_data():
-
-    # Get file path from command line
-    path_file = sys.argv[1]
-
-    try:
-        data = pd.read_csv(path_file, encoding='latin-1')  # or try 'cp1252' if latin-1 doesn't work
-        
-        # Select only the columns we need for the Institutions table
-        columns_to_select = ['UNITID', 'INSTNM', 'INSTNM', 'CONTROL', 'CCBASIC', 'OBEREG',
-                             'CBSA', 'CSA', 'COUNTYCD', 'CITY', 'STABBR',
-                             'ADDR', 'ZIP', 'LATITUDE', 'LONGITUD']
-        
-        # Select the columns and handle missing values
-        selected_data = data[columns_to_select].copy()
-        
-        return selected_data
-
-    except Exception as e:
-        print("Error occurred loading data: ", e)
-        raise
+COLUMN_MAP = {
+    "institution_id": "UNITID",
+    "name": "INSTNM",
+    "accredagency": "",  # Not available in hd2022.csv
+    "control": "CONTROL",
+    "CCbasic": "C21BASIC",
+    "region": "OBEREG",
+    "csba": "CBSA",
+    "cba": "CSA",
+    "county_fips": "COUNTYCD",
+    "city": "CITY",
+    "state": "STABBR",
+    "address": "ADDR",
+    "zip": "ZIP",
+    "latitude": "LATITUDE",
+    "longitude": "LONGITUD",
+}
 
 
-def insert_data(df):
+def clean(value):
+    '''Cleans a value from the IPEDS dataset'''
+    if value is None:
+        return None
+    if isinstance(value, str):
+        v = value.strip()
+        if v in {"", "NA", "N/A", "NULL", "PrivacySuppressed"}:
+            return None
+        if v in {"-3", "-2", "-999"}:
+            return None
+        return v
+    if isinstance(value, (int, float)) and value < 0:
+        return None
+    return value
 
-    # Connect to database
-    print("In the function")
-    conn = psycopg2.connect(
+
+def to_row(rec):
+    '''Converts a record dict from IPEDS into a tuple for insertion'''
+    # Find the correct columns for institution_id and name
+    uid_col = next((c for c in rec.keys() if "UNITID" in c.upper()), None)
+    instnm_col = next((c for c in rec.keys() if "INSTNM" in c.upper()), None)
+    return (
+        clean(rec.get(uid_col)),
+        clean(rec.get(instnm_col)),
+        None,
+        clean(rec["CONTROL"]),
+        clean(rec["C21BASIC"]),
+        clean(rec["OBEREG"]),
+        clean(rec["CBSA"]),
+        clean(rec["CSA"]),
+        clean(rec["COUNTYCD"]),
+        clean(rec["CITY"]),
+        clean(rec["STABBR"]),
+        clean(rec["ADDR"]),
+        clean(rec["ZIP"]),
+        clean(rec["LATITUDE"]),
+        clean(rec["LONGITUD"]),
+    )
+
+
+def main():
+    # Load the CSV file
+    csv_path = sys.argv[1]
+    data = pd.read_csv(csv_path, dtype=str, low_memory=False,
+                       encoding="latin1")
+    data.columns = [c.strip().upper() for c in data.columns]
+
+    # Convert to rows
+    rows = [to_row(rec) for rec in data.to_dict(orient="records")]
+    print(f"Loaded {len(rows)} rows from {csv_path}")
+
+    insert_sql = (
+        "INSERT INTO Institutions (institution_id, name, accredagency, "
+        "control, CCbasic, region, csba, cba, county_fips, city, state, "
+        "address, zip, latitude, longitude) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+
+    # Connect to the database
+    conn = psycopg.connect(
         host="debprodserver.postgres.database.azure.com",
-        database="pramitv",
-        user="pramitv",
-        password = "HbALuVdRxq")
-
-    print("In the function")
-    # Create cursor object
+        dbname="agehr",
+        user="agehr",
+        password="?eMc2GnHzV"
+    )
     cursor = conn.cursor()
-    print("connected")
-    # Use transaction
-    try:
-        conn.autocommit = False
-        print("Starting trans")
-        cursor.executemany(
-            "INSERT INTO Institutions (institution_id, name, accredagency, control,"
-            "CCbasic, region, cbsa, csa, county_fips, city, state, "
-            "address, zip, latitude, longitude) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
-            "%s, %s)",
-            df.values.tolist())
-        cursor.execute("SELECT COUNT(*) FROM Institutions")
-        print("executed")
-        conn.commit()
+    inserted = 0
 
-    except Exception as e:
-        print("Error inserting data: ", e)
-        conn.rollback()
-
-    finally:
-        cursor.close()
-        conn.close()
+    # Insert rows
+    with conn.transaction():
+        for i, row in enumerate(rows, start=1):
+            try:
+                with conn.transaction():
+                    cursor.execute(insert_sql, row)
+                    if i % 100 == 0:
+                        print(f"{i} rows processed...")
+                    inserted += 1
+            except Exception as e:
+                conn.rollback()
+                print(f"[ERROR] Row {i} failed: {e}")
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print(f"Done. {inserted} of {len(rows)} rows inserted successfully.")
 
 
 if __name__ == "__main__":
-    df = load_data()
-    print(df.columns)
-    print("Done loading")
-    insert_data(df)
+    main()

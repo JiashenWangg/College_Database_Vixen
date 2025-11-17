@@ -11,20 +11,11 @@ import psycopg
 
 
 def main():
-
+    # Load the CSV file
     csv_path = sys.argv[1]
     df = pd.read_csv(csv_path, dtype=str, low_memory=False, encoding="latin1")
     df.columns = [c.strip().upper() for c in df.columns]
-
     print(f"Loaded {len(df)} records from {csv_path}")
-
-    conn = psycopg.connect(
-        host="debprodserver.postgres.database.azure.com",
-        dbname="agehr",
-        user="agehr",
-        password="?eMc2GnHzV"
-    )
-    cursor = conn.cursor()
 
     update_sql = """
         UPDATE Institutions
@@ -32,8 +23,17 @@ def main():
         WHERE institution_id = %s;
     """
 
+    # Connect to the database
+    conn = psycopg.connect(
+        host="debprodserver.postgres.database.azure.com",
+        dbname="agehr",
+        user="agehr",
+        password="?eMc2GnHzV"
+    )
+    cursor = conn.cursor()
     updated = 0
     try:
+        # Update rows
         for i, row in df.iterrows():
             accredagency = row["ACCREDAGENCY"]
             unitid = row["UNITID"]
