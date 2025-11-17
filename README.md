@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project creates a comprehensive PostgreSQL database for tracking college and university data across the United States. The database is designed to help **prospective students and their families** make informed decisions about college selection, as well as assist **admissions professionals** in understanding institutional trends and benchmarking against peer institutions.
+This project creates a comprehensive PostgreSQL database for tracking college and university data across the United States. The database is designed to help **prospective students and their families** make informed decisions about college selection, as well as assist **admissions professionals** in understanding institutional trends and benchmarking against peer institutions. We also update the IPEDS table whenever it is ran again and the AccredAgency will take the most recent values. 
 
 ## Database Purpose
 
@@ -241,6 +241,7 @@ All tables include CHECK constraints to ensure data quality:
 - Test scores must be within valid ranges
 - Geographic codes must have proper length
 - Financial values cannot be negative
+
 
 ## Use Cases
 
