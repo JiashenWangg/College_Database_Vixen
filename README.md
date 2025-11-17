@@ -210,9 +210,8 @@ python load-scorecard.py .
 ⚠️ **Files MUST follow the pattern**: `MERGED<YEAR>.csv`
 
 Examples of valid filenames:
-- ✅ `MERGED2022.csv` (Year 2022)
-- ✅ `MERGED2019_PP.csv` (Year 2019)
-- ❌ `scorecard_2021.csv` (Won't work - wrong format)
+- ✅ `MERGED2022.csv`
+- ✅ `scorecard_2021.csv` 
 - ❌ `MERGED_2021_PP.csv` (Won't work)
 
 The script uses regex pattern matching to extract the year: `MERGED(\d{4})_\d{2}_PP\.csv`
@@ -347,20 +346,22 @@ All tables include CHECK constraints to ensure data quality:
 
 ```
 College_Database_Vixen/
-├── README.md                    # This file
-├── part1.ipynb                  # Database schema definition
+├── README.md                   # This file
+├── create_tables.ipynb         # Database schema definition
 ├── load-ipeds.py               # IPEDS data loader
 ├── load-scorecard.py           # College Scorecard data loader
 ├── hd2022.csv                  # IPEDS institutional directory
-├── MERGED2018_19_PP.csv        # College Scorecard 2018
-├── MERGED2019_20_PP.csv        # College Scorecard 2019
-├── MERGED2020_21_PP.csv        # College Scorecard 2020
-└── MERGED2021_22_PP.csv        # College Scorecard 2021
+├── MERGED2019.csv              # College Scorecard 2018
+├── MERGED2020.csv              # College Scorecard 2019
+├── MERGED2021.csv              # College Scorecard 2020
+└── MERGED2022.csv              # College Scorecard 2021
 ```
 
 ## Contributors
 
 Pramit V. - Database design and ETL development
+Jiashen W - Database design and ETL development
+Adam G. - Database design and ETL development
 
 ## Data Sources
 
