@@ -57,15 +57,15 @@ While all data could theoretically exist in one table, we chose to **separate co
 ### Institutions Table
 ```sql
 CREATE TABLE Institutions (
-   institution_id TEXT PRIMARY KEY,        -- 8-digit OPEID code
+   institution_id TEXT PRIMARY KEY, --- 8-digit OPEID code
    name TEXT NOT NULL, 
-   accredagency TEXT,                      -- Accrediting agency (from IPEDS)
-   control INT CHECK (control IN (1, 2, 3)), -- 1=Public, 2=Private nonprofit, 3=Proprietary
-   CCbasic INT CHECK (CCbasic <= 33),      -- Carnegie Classification
+   accredagency TEXT, ---accrediting agency
+   control INT CHECK (control IN (1, 2, 3)), --- 1=Public, 2=Private nonprofit, 3=Proprietary
+   CCbasic INT CHECK (CCbasic <= 33), --- Carnegie classifier
    region INT CHECK (region BETWEEN 0 AND 9),
-   csba TEXT CHECK (LENGTH(csba) = 5),     -- Core Based Statistical Area
-   cba TEXT CHECK (LENGTH(cba) = 5),       -- Combined Statistical Area
-   county_fips TEXT CHECK (LENGTH(county_fips) = 5),
+   csba TEXT CHECK (LENGTH(csba) = 5), --- Core Based Statistical Area
+   cba TEXT CHECK (LENGTH(cba) = 5), --- Combined Statistical Area
+   county_fips TEXT CHECK (LENGTH(county_fips) = 5), --- County FIPS code
    city TEXT,
    state TEXT CHECK (LENGTH(state) = 2),
    address TEXT,
@@ -73,23 +73,22 @@ CREATE TABLE Institutions (
    latitude FLOAT,
    longitude FLOAT
 );
+
 ```
 
 **Data Source**: IPEDS `hd2022.csv` file
-- **Note**: The `accredagency` column requires data from a separate IPEDS accreditation file (currently loaded with a placeholder value)
+- **Note**: The `accredagency` column requires data from a separate accreditation file (currently loaded with a placeholder value)
 
 ### Students Table
 ```sql
 CREATE TABLE Students (
-   institution_id TEXT REFERENCES Institutions(institution_id),
+   institution_id INT REFERENCES Institutions(institution_id),
    year INT CHECK (year > 0 AND year <= EXTRACT(YEAR FROM CURRENT_DATE)),
-   adm_rate FLOAT CHECK (adm_rate >= 0 AND adm_rate <= 1),
+   adm_rate FLOAT CHECK (adm_rate >= 0 and adm_rate <= 1), –-- Admission rate
    num_students INT CHECK (num_students >= 0),  
-   act FLOAT CHECK (act >= 1 AND act <= 36),
-   cdr2 FLOAT CHECK (cdr2 >= 0 AND cdr2 <= 1),  -- 2-year cohort default rate
-   cdr3 FLOAT CHECK (cdr3 >= 0 AND cdr3 <= 1),  -- 3-year cohort default rate
-   first_gen FLOAT CHECK (first_gen >= 0 AND first_gen <= 1),
-   avg_family_income INT CHECK (avg_family_income >= 0),
+   act FLOAT CHECK (act >= 1 and act <= 36), –-- ACT exam score
+   cdr2 FLOAT CHECK (cdr2 >= 0 and cdr2 <= 1), —-- 2 year default rate of student loans
+   cdr3 FLOAT CHECK (cdr3 >= 0 and cdr3 <= 1), —-- 3 year default rate of student loans
    PRIMARY KEY (institution_id, year)
 );
 ```
@@ -99,15 +98,16 @@ CREATE TABLE Students (
 ### Financials Table
 ```sql
 CREATE TABLE Financials (
-   institution_id TEXT REFERENCES Institutions(institution_id),
+   institution_id INT REFERENCES Institutions(institution_id),
    year INT CHECK (year > 0 AND year <= EXTRACT(YEAR FROM CURRENT_DATE)),
-   tuitionfee_in INT CHECK (tuitionfee_in >= 0),
-   tuitionfee_out INT CHECK (tuitionfee_out >= 0),
-   tuitionfee_prog INT CHECK (tuitionfee_prog >= 0),
-   tuitfte INT CHECK (tuitfte >= 0),
-   avgfacsal INT CHECK (avgfacsal >= 0),
+   tuitionfee_in INT CHECK (tuitionfee_in >= 0), –-- In state tuition
+   tuitionfee_out INT CHECK (tuitionfee_out >= 0), –-- Out of state tuition
+   tuitionfee_prog INT CHECK (tuitionfee_prog >= 0), –-- Average tuition for program-year –institutions
+   tuitfte INT CHECK (tuitfte >= 0), –-- Net tuition revenue per student
+   avgfacsal INT CHECK (avgfacsal >= 0), –-- Average faculty salary
    PRIMARY KEY (institution_id, year)
 );
+
 ```
 
 **Data Source**: College Scorecard MERGED files
@@ -201,21 +201,23 @@ python load-scorecard.py .
 ```
 
 **What this does**:
-- Automatically extracts the year from the filename (e.g., `MERGED2021_22_PP.csv` → year = 2021)
+- Automatically extracts the year from the filename (e.g., `MERGED2022.csv` → year = 2022)
 - Loads data into Students, Financials, and Academics tables simultaneously
 - Handles missing data by converting invalid values to NULL
 - Provides detailed error reporting for any failed insertions
 
 **Important File Naming Convention**:
-⚠️ **Files MUST follow the pattern**: `MERGED<YEAR>_<TWO_DIGIT_YEAR>_PP.csv`
+⚠️ **Files MUST follow the pattern**: `MERGED<YEAR>.csv`
 
 Examples of valid filenames:
-- ✅ `MERGED2021_22_PP.csv` (Year 2021)
-- ✅ `MERGED2018_19_PP.csv` (Year 2018)
+- ✅ `MERGED2022.csv` (Year 2022)
+- ✅ `MERGED2019_PP.csv` (Year 2019)
 - ❌ `scorecard_2021.csv` (Won't work - wrong format)
-- ❌ `MERGED_2021_PP.csv` (Won't work - missing second year)
+- ❌ `MERGED_2021_PP.csv` (Won't work)
 
 The script uses regex pattern matching to extract the year: `MERGED(\d{4})_\d{2}_PP\.csv`
+
+The years need to be run sequentially in chronological order otherwise the accredagnecy fields will not be valid.
 
 ## Data Relationships
 
