@@ -13,9 +13,10 @@ import psycopg
 def main():
     # Load the CSV file
     csv_path = sys.argv[1]
-    df = pd.read_csv(csv_path, dtype=str, low_memory=False, encoding="latin1")
-    df.columns = [c.strip().upper() for c in df.columns]
-    print(f"Loaded {len(df)} records from {csv_path}")
+    data = pd.read_csv(csv_path, dtype=str, low_memory=False, 
+                       encoding="latin1")
+    data.columns = [c.strip().upper() for c in data.columns]
+    print(f"Loaded {len(data)} rows from {csv_path}")
 
     update_sql = """
         UPDATE Institutions
@@ -26,15 +27,15 @@ def main():
     # Connect to the database
     conn = psycopg.connect(
         host="debprodserver.postgres.database.azure.com",
-        dbname="agehr",
-        user="agehr",
-        password="?eMc2GnHzV"
+        dbname="",
+        user="",
+        password=""
     )
     cursor = conn.cursor()
     updated = 0
     try:
         # Update rows
-        for i, row in df.iterrows():
+        for i, row in data.iterrows():
             accredagency = row["ACCREDAGENCY"]
             unitid = row["UNITID"]
 
@@ -52,7 +53,8 @@ def main():
                 print(f"[ERROR] Row {i+1} (UNITID={unitid}) failed: {e}")
                 raise
         conn.commit()
-        print(f"Done. {updated} rows updated successfully.")
+        print(f"Done. {updated} records of accredagency in Institutions "
+              f"updated successfully.")
     except Exception as e:
         conn.rollback()
         print(f"Transaction failed: {e}")

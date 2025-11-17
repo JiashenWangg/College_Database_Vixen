@@ -90,14 +90,14 @@ def main():
     csv_path = sys.argv[1]
     year = extract_year(csv_path)
 
-    df = pd.read_csv(csv_path, low_memory=False, encoding="latin1")
-    df.columns = [c.strip().upper() for c in df.columns]
-    print(f"Loaded {len(df)} records for year {year}.")
+    data = pd.read_csv(csv_path, low_memory=False, encoding="latin1")
+    data.columns = [c.strip().upper() for c in data.columns]
+    print(f"Loaded {len(data)} rows for year {year}.")
 
     # Build data for all 3 tables
-    students_rows = build_students_rows(df, year)
-    financials_rows = build_financials_rows(df, year)
-    academics_rows = build_academics_rows(df, year)
+    students_rows = build_students_rows(data, year)
+    financials_rows = build_financials_rows(data, year)
+    academics_rows = build_academics_rows(data, year)
 
     # SQL statements
     students_sql = ("INSERT INTO Students (institution_id, year, adm_rate, "
@@ -113,9 +113,9 @@ def main():
     # Connect to the database
     conn = psycopg.connect(
         host="debprodserver.postgres.database.azure.com",
-        dbname="agehr",
-        user="agehr",
-        password="?eMc2GnHzV"
+        dbname="",
+        user="",
+        password=""
     )
     cursor = conn.cursor()
     inserted = {"Students": 0, "Financials": 0, "Academics": 0}
@@ -129,7 +129,7 @@ def main():
             cursor.execute(students_sql, row)
             inserted["Students"] += 1
             if i % 500 == 0:
-                print(f"   Students: {i} rows processed...")
+                print(f"Students: {i} rows inserted...")
         except Exception as e:
             conn.rollback()
             print(f"[ERROR] Students row {i} failed: {e}")
@@ -142,7 +142,7 @@ def main():
             cursor.execute(financials_sql, row)
             inserted["Financials"] += 1
             if i % 500 == 0:
-                print(f"   Financials: {i} rows processed...")
+                print(f"Financials: {i} rows inserted...")
         except Exception as e:
             conn.rollback()
             print(f"[ERROR] Financials row {i} failed: {e}")
@@ -155,7 +155,7 @@ def main():
             cursor.execute(academics_sql, row)
             inserted["Academics"] += 1
             if i % 500 == 0:
-                print(f"   Academics: {i} rows processed...")
+                print(f"Academics: {i} rows inserted...")
         except Exception as e:
             conn.rollback()
             print(f"[ERROR] Academics row {i} failed: {e}")
@@ -164,9 +164,9 @@ def main():
     conn.commit()
     cursor.close()
     conn.close()
-    print(f"Inserted {inserted['Students']} Students rows.")
-    print(f"Inserted {inserted['Financials']} Financials rows.")
-    print(f"Inserted {inserted['Academics']} Academics rows.")
+    print(f"Inserted {inserted['Students']} rows to Students.")
+    print(f"Inserted {inserted['Financials']} rows to Financials.")
+    print(f"Inserted {inserted['Academics']} rows to Academics.")
 
 
 if __name__ == "__main__":

@@ -29,12 +29,15 @@ COLUMN_MAP = {
 
 
 def clean(value):
-    '''Cleans a value from the IPEDS dataset'''
+    '''
+    Cleans a value from the IPEDS dataset
+    by converting known missing value indicators to None.
+    '''
     if value is None:
         return None
     if isinstance(value, str):
         v = value.strip()
-        if v in {"", "NA", "N/A", "NULL", "PrivacySuppressed"}:
+        if v in {"", "NA", "N/A", "NULL"}:
             return None
         if v in {"-3", "-2", "-999"}:
             return None
@@ -45,7 +48,7 @@ def clean(value):
 
 
 def to_row(rec):
-    '''Converts a record dict from IPEDS into a tuple for insertion'''
+    '''Converts a record from IPEDS into a tuple for insertion'''
     # Find the correct columns for institution_id and name
     uid_col = next((c for c in rec.keys() if "UNITID" in c.upper()), None)
     instnm_col = next((c for c in rec.keys() if "INSTNM" in c.upper()), None)
@@ -53,18 +56,18 @@ def to_row(rec):
         clean(rec.get(uid_col)),
         clean(rec.get(instnm_col)),
         None,
-        clean(rec["CONTROL"]),
-        clean(rec["C21BASIC"]),
-        clean(rec["OBEREG"]),
-        clean(rec["CBSA"]),
-        clean(rec["CSA"]),
-        clean(rec["COUNTYCD"]),
-        clean(rec["CITY"]),
-        clean(rec["STABBR"]),
-        clean(rec["ADDR"]),
-        clean(rec["ZIP"]),
-        clean(rec["LATITUDE"]),
-        clean(rec["LONGITUD"]),
+        clean(rec.get("CONTROL")),
+        clean(rec.get("C21BASIC")),
+        clean(rec.get("OBEREG")),
+        clean(rec.get("CBSA")),
+        clean(rec.get("CSA")),
+        clean(rec.get("COUNTYCD")),
+        clean(rec.get("CITY")),
+        clean(rec.get("STABBR")),
+        clean(rec.get("ADDR")),
+        clean(rec.get("ZIP")),
+        clean(rec.get("LATITUDE")),
+        clean(rec.get("LONGITUD"))
     )
 
 
@@ -88,9 +91,9 @@ def main():
     # Connect to the database
     conn = psycopg.connect(
         host="debprodserver.postgres.database.azure.com",
-        dbname="agehr",
-        user="agehr",
-        password="?eMc2GnHzV"
+        dbname="",
+        user="",
+        password=""
     )
     cursor = conn.cursor()
     inserted = 0
@@ -101,8 +104,8 @@ def main():
             try:
                 with conn.transaction():
                     cursor.execute(insert_sql, row)
-                    if i % 100 == 0:
-                        print(f"{i} rows processed...")
+                    if i % 500 == 0:
+                        print(f"{i} rows inserted...")
                     inserted += 1
             except Exception as e:
                 conn.rollback()
