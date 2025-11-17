@@ -26,7 +26,7 @@ The database uses a **normalized schema** with four main entities, each serving 
 1. **Institutions** (Master Table)
    - Stores relatively static institutional characteristics
    - One-to-many relationship with all other tables
-   - Primary key: `institution_id` (OPEID code)
+   - Primary key: `institution_id` 
 
 2. **Students** 
    - Annual student body characteristics and demographics
@@ -57,19 +57,19 @@ While all data could theoretically exist in one table, we chose to **separate co
 ### Institutions Table
 ```sql
 CREATE TABLE Institutions (
-   institution_id TEXT PRIMARY KEY, --- 8-digit OPEID code
+   institution_id INT PRIMARY KEY, --- 6-digit code
    name TEXT NOT NULL, 
    accredagency TEXT, ---accrediting agency
    control INT CHECK (control IN (1, 2, 3)), --- 1=Public, 2=Private nonprofit, 3=Proprietary
    CCbasic INT CHECK (CCbasic <= 33), --- Carnegie classifier
    region INT CHECK (region BETWEEN 0 AND 9),
-   csba TEXT CHECK (LENGTH(csba) = 5), --- Core Based Statistical Area
-   cba TEXT CHECK (LENGTH(cba) = 5), --- Combined Statistical Area
-   county_fips TEXT CHECK (LENGTH(county_fips) = 5), --- County FIPS code
+   csba INT, --- Core Based Statistical Area
+   cba INT, --- Combined Statistical Area
+   county_fips INT, --- County FIPS code
    city TEXT,
    state TEXT CHECK (LENGTH(state) = 2),
    address TEXT,
-   zip INT CHECK (zip > 0),
+   zip TEXT,
    latitude FLOAT,
    longitude FLOAT
 );
@@ -143,10 +143,10 @@ CREATE TABLE Academics (
 
 3. **Required Data Files**:
    - `hd2022.csv` - IPEDS institutional directory
-   - `MERGED2018_19_PP.csv` - College Scorecard 2018 data
-   - `MERGED2019_20_PP.csv` - College Scorecard 2019 data
-   - `MERGED2020_21_PP.csv` - College Scorecard 2020 data
-   - `MERGED2021_22_PP.csv` - College Scorecard 2021 data
+   - `scorecard_2019.csv` - College Scorecard 2018 data
+   - `scorecard_2020.csv` - College Scorecard 2019 data
+   - `scorecard_2021.csv` - College Scorecard 2020 data
+   - `scorecard_2022.csv` - College Scorecard 2021 data
 
 ### Step 1: Create Database Schema
 
@@ -192,7 +192,7 @@ python load-ipeds.py hd2022.csv
 
 **Option A - Single File**:
 ```bash
-python load-scorecard.py MERGED2021_22_PP.csv
+python load-scorecard.py scorecard_2021.csv
 ```
 
 **Option B - All Files at Once**:
@@ -201,7 +201,7 @@ python load-scorecard.py .
 ```
 
 **What this does**:
-- Automatically extracts the year from the filename (e.g., `MERGED2022.csv` → year = 2022)
+- Automatically extracts the year from the filename (e.g., `hd2022.csv` → year = 2022)
 - Loads data into Students, Financials, and Academics tables simultaneously
 - Handles missing data by converting invalid values to NULL
 - Provides detailed error reporting for any failed insertions
@@ -210,11 +210,10 @@ python load-scorecard.py .
 ⚠️ **Files MUST follow the pattern**: `MERGED<YEAR>.csv`
 
 Examples of valid filenames:
-- ✅ `MERGED2022.csv`
+- ✅ `cd2022.csv`
 - ✅ `scorecard_2021.csv` 
 - ❌ `MERGED_2021_PP.csv` (Won't work)
 
-The script uses regex pattern matching to extract the year: `MERGED(\d{4})_\d{2}_PP\.csv`
 
 The years need to be run sequentially in chronological order otherwise the accredagnecy fields will not be valid.
 
@@ -327,14 +326,14 @@ All tables include CHECK constraints to ensure data quality:
 
 1. **"integer out of range" error**:
    - Ensure your Institutions table uses TEXT for `institution_id`, not INT
-   - Some OPEID codes exceed INT limits
+
 
 2. **Foreign key constraint violations**:
    - Run `load-ipeds.py` BEFORE `load-scorecard.py`
    - Scorecard data references institutions that must exist first
 
 3. **"Year not found in filename" error**:
-   - Verify your College Scorecard files follow the `MERGED<YEAR>_<YR>_PP.csv` pattern
+   - Verify your College Scorecard files follow the `scorecard_{year}.csv` pattern
    - Check that files aren't renamed
 
 4. **Connection timeout**:
