@@ -12,7 +12,7 @@ Note:
     - Rename csv files to end with 4-digit year, e.g., scorecard_2022.csv
     - Run the script for each year file by chronological order (2019-2022)
 """
-
+from datetime import datetime
 import sys
 import pandas as pd
 import psycopg
@@ -122,6 +122,24 @@ def build_academics_rows(df, year):
     return rows
 
 
+def error_log(e, i, row, csv_path):
+    '''
+    Logs an error to error_log.txt
+    Input:
+        e: Exception, the exception that occurred
+        i: int, the row number
+        row: tuple, the data row that caused the error
+        csv_path: str, path to the CSV file being processed
+    '''
+    with open("error_log.txt", "a") as f:
+        f.write(f"Timestamp: {datetime.now()}\n")
+        f.write(f"When running load-scorecard.py, Row {i} failed in "
+                f"{csv_path}\n")
+        f.write(f"ERROR: {e}\n")
+        f.write(f"Row data: {row}\n")
+        f.write("\n")
+
+
 def main():
     '''
     Updates accredagency in Institutions table and
@@ -162,23 +180,23 @@ def main():
     )
     cursor = conn.cursor()
 
+    # Update rows for accredagency in Institutions table
     updated = 0
     print("Updating accredagency in Institutions...")
     try:
-        # Update rows for accredagency
         for i, row in data.iterrows():
             accredagency = clean(row["ACCREDAGENCY"])
             unitid = row["UNITID"]
             try:
                 cursor.execute(accredagency_sql, (accredagency, unitid))
-                if cursor.rowcount > 0:
-                    updated += cursor.rowcount
+                updated += 1
                 if (i + 1) % 500 == 0:
                     print(f"Updated {i + 1} records of accredagency in "
                           f"Institutions...")
             except Exception as e:
                 print(f"[ERROR] Row {i+1} (UNITID={unitid}) failed: {e}")
-                raise
+                error_log(e, i+1, row, csv_path)  # Log the error
+                sys.exit(1)
         conn.commit()
         print(f"Done. {updated} records of accredagency in Institutions "
               f"updated successfully.")
@@ -186,6 +204,7 @@ def main():
         conn.rollback()
         print(f"Update of accredagency in Institutions failed: {e}")
 
+    # Insert rows into Students, Financials, and Academics tables
     inserted = {"Students": 0, "Financials": 0, "Academics": 0}
     # Insert rows
     print("Inserting into Students...")
@@ -201,6 +220,7 @@ def main():
         except Exception as e:
             conn.rollback()
             print(f"[ERROR] Students row {i} failed: {e}")
+            error_log(e, i+1, row, csv_path)  # Log the error
             sys.exit(1)
     conn.commit()
     print(f"Done. Inserted {inserted['Students']} records into Students")
@@ -218,6 +238,7 @@ def main():
         except Exception as e:
             conn.rollback()
             print(f"[ERROR] Financials row {i} failed: {e}")
+            error_log(e, i+1, row, csv_path)  # Log the error
             sys.exit(1)
     conn.commit()
     print(f"Done. Inserted {inserted['Financials']} records into Financials")
@@ -235,6 +256,7 @@ def main():
         except Exception as e:
             conn.rollback()
             print(f"[ERROR] Academics row {i} failed: {e}")
+            error_log(e, i+1, row, csv_path)  # Log the error
             sys.exit(1)
     conn.commit()
     print(f"Done. Inserted {inserted['Academics']} records into Academics")
