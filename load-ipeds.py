@@ -28,6 +28,7 @@ def clean(value):
     '''
     if value is None:
         return None
+    # Handle string missing value indicators
     if isinstance(value, str):
         v = value.strip()
         if v in {"", "NA", "N/A", "NULL"}:
@@ -35,6 +36,7 @@ def clean(value):
         if v in {"-3", "-2", "-999"}:
             return None
         return v
+    # Handle negative numbers
     if isinstance(value, (int, float)) and value < 0:
         return None
     return value
@@ -49,7 +51,7 @@ def to_row(rec):
         tuple, a row for Institutions table
     '''
     return (
-        clean(rec.get("UNITID")),
+        clean(int(rec.get("UNITID"))),
         clean(rec.get("INSTNM")),
         None,  # accredagency to be updated later in load-scorecard.py
         clean(rec.get("CONTROL")),
@@ -114,31 +116,70 @@ def main():
         password=""
     )
     cursor = conn.cursor()
-    inserted = 0
-    updated = 0
 
-    # Insert/Update rows
-    print("Inserting/Updating rows in Institutions...")
-    for i, row in enumerate(rows, start=1):
-        # First try to update
-        # Update row is shifted by 1 for institution_id at the end
-        update_row = row[1:] + (row[0],)
+    update_rows = []
+    insert_rows = []
+
+    # --- Separate rows into UPDATE vs INSERT ---
+    print("Determining which rows to update vs insert...")
+    cursor.execute("SELECT institution_id FROM Institutions;")
+    existing_ids = {row[0] for row in cursor.fetchall()}
+    for row in rows:
+        inst_id = row[0]
+        if inst_id in existing_ids:
+            # UPDATE row: all values except inst_id, then inst_id at end
+            update_rows.append(row[1:] + (inst_id,))
+        else:
+            insert_rows.append(row)
+    print(f"Rows to UPDATE: {len(update_rows)}")
+    print(f"Rows to INSERT: {len(insert_rows)}")
+
+    # Updating rows in Institutions table
+    print("Updating rows in Institutions...")
+    updated = 0
+    if update_rows:
         try:
-            cursor.execute(update_sql, update_row)
-            if cursor.rowcount == 0:
-                # If no rows were updated, insert
-                cursor.execute(insert_sql, row)
-                inserted += 1
-            else:
-                updated += 1
+            cursor.executemany(update_sql, update_rows)
+            updated = cursor.rowcount
+            print(f"Updated {updated} rows.")
         except Exception as e:
             conn.rollback()
-            print(f"[ERROR] Row {i} failed: {e}")
-            # Create an error log file
-            error_log(e, i, row, csv_path)
+            failed_index = cursor.rowcount  # index of failing row
+            bad_row = update_rows[failed_index]
+            # Find the failing index in the original data
+            for idx, r in enumerate(rows):
+                if r[0] == bad_row[-1]:  # match institution_id
+                    failed_index = idx + 1  # +1 for 1-based index
+                    break
+            print("[ERROR] Batch update failed:", e)
+            print("Failing row index:", failed_index)
+            print("Failing row data:", bad_row)
+            error_log(e, failed_index, bad_row, csv_path)  # Log the error
             sys.exit(1)
-        if i % 500 == 0:
-            print(f"{i} rows inserted/updated...")
+
+    # Inserting rows into Institutions table
+    print("Inserting rows into Institutions...")
+    inserted = 0
+    if insert_rows:
+        try:
+            cursor.executemany(insert_sql, insert_rows)
+            inserted = cursor.rowcount
+            print(f"Inserted {inserted} rows.")
+        except Exception as e:
+            conn.rollback()
+            failed_index = cursor.rowcount  # index of failing row
+            bad_row = insert_rows[failed_index]
+            # Find the failing index in the original data
+            for idx, r in enumerate(rows):
+                if r[0] == bad_row[0]:  # match institution_id
+                    failed_index = idx + 1  # +1 for 1-based index
+                    break
+            print("[ERROR] Batch insert failed:", e)
+            print("Failing row index:", failed_index)
+            print("Failing row data:", bad_row)
+            error_log(e, failed_index, bad_row, csv_path)  # Log the error
+            sys.exit(1)
+
     conn.commit()
     cursor.close()
     conn.close()

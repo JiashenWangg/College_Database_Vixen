@@ -1,6 +1,6 @@
 """
 Update accredagency in Institutions table and
-Load data for yearly Students, Financials, and Academics tables
+Batch insert data for yearly Students, Financials, and Academics tables
 
 Usage:
     python load-scorecard.py ../data/scorecard/scorecard_2019.csv
@@ -131,6 +131,7 @@ def error_log(e, i, row, csv_path):
         row: tuple, the data row that caused the error
         csv_path: str, path to the CSV file being processed
     '''
+    # Append error details to error_log.txt
     with open("error_log.txt", "a") as f:
         f.write(f"Timestamp: {datetime.now()}\n")
         f.write(f"When running load-scorecard.py, Row {i} failed in "
@@ -153,6 +154,15 @@ def main():
     data.columns = [c.strip().upper() for c in data.columns]
     print(f"Loaded {len(data)} rows for year {year}.")
 
+    # Build accredagency update rows
+    accred_rows = []
+    for _, r in data.iterrows():
+        unitid = r.get("UNITID")
+        accred = clean(r.get("ACCREDAGENCY"))
+        if unitid is None or str(unitid).strip() == "":
+            continue
+        accred_rows.append((accred, unitid))
+
     # Build data for all 3 tables
     students_rows = build_students_rows(data, year)
     financials_rows = build_financials_rows(data, year)
@@ -169,7 +179,6 @@ def main():
                       "tuitfte, avgfacsal) VALUES (%s,%s,%s,%s,%s,%s,%s)")
     academics_sql = ("INSERT INTO Academics (institution_id, year, preddeg, "
                      "highdeg, stufacr) VALUES (%s,%s,%s,%s,%s)")
-    check_sql = "SELECT 1 FROM Institutions WHERE institution_id = %s;"
 
     # Connect to the database
     conn = psycopg.connect(
@@ -180,86 +189,75 @@ def main():
     )
     cursor = conn.cursor()
 
-    # Update rows for accredagency in Institutions table
-    updated = 0
+    # Batch update accredagency in Institutions table
     print("Updating accredagency in Institutions...")
     try:
-        for i, row in data.iterrows():
-            accredagency = clean(row["ACCREDAGENCY"])
-            unitid = row["UNITID"]
-            try:
-                cursor.execute(accredagency_sql, (accredagency, unitid))
-                updated += 1
-                if (i + 1) % 500 == 0:
-                    print(f"Updated {i + 1} records of accredagency in "
-                          f"Institutions...")
-            except Exception as e:
-                print(f"[ERROR] Row {i+1} (UNITID={unitid}) failed: {e}")
-                error_log(e, i+1, row, csv_path)  # Log the error
-                sys.exit(1)
+        cursor.executemany(accredagency_sql, accred_rows)
         conn.commit()
-        print(f"Done. {updated} records of accredagency in Institutions "
-              f"updated successfully.")
+        print(f"Done. Updated {cursor.rowcount} accredagency records.")
     except Exception as e:
         conn.rollback()
-        print(f"Update of accredagency in Institutions failed: {e}")
+        print("[ERROR] accredagency batch update failed:", e)
+        error_log(e, "accredagency_batch", "N/A", csv_path)
+        sys.exit(1)
+
+    # Fetch valid institution_ids
+    cursor.execute("SELECT institution_id FROM Institutions")
+    valid_ids = {row[0] for row in cursor.fetchall()}
+    students_rows = [row for row in students_rows if row[0] in valid_ids]
+    financials_rows = [row for row in financials_rows if row[0] in valid_ids]
+    academics_rows = [row for row in academics_rows if row[0] in valid_ids]
 
     # Insert rows into Students, Financials, and Academics tables
     inserted = {"Students": 0, "Financials": 0, "Academics": 0}
-    # Insert rows
+
+    # Insert into Students table
     print("Inserting into Students...")
-    for i, row in enumerate(students_rows, start=1):
-        cursor.execute(check_sql, (row[0],))
-        if cursor.fetchone() is None:
-            continue
-        try:
-            cursor.execute(students_sql, row)
-            inserted["Students"] += 1
-            if i % 500 == 0:
-                print(f"Students: {i} rows inserted...")
-        except Exception as e:
-            conn.rollback()
-            print(f"[ERROR] Students row {i} failed: {e}")
-            error_log(e, i+1, row, csv_path)  # Log the error
-            sys.exit(1)
-    conn.commit()
-    print(f"Done. Inserted {inserted['Students']} records into Students")
+    try:
+        cursor.executemany(students_sql, students_rows)
+        print(f"Inserted {cursor.rowcount} Students rows.")
+        inserted["Students"] = cursor.rowcount
+    except Exception as e:
+        conn.rollback()
+        failed_index = cursor.rowcount  # index of failing row
+        bad_row = students_rows[failed_index]
+        error_log(e, failed_index, bad_row, csv_path)  # Log the error
+        sys.exit(1)
 
+    # Insert into Financials table
     print("Inserting into Financials...")
-    for i, row in enumerate(financials_rows, start=1):
-        cursor.execute(check_sql, (row[0],))
-        if cursor.fetchone() is None:
-            continue
-        try:
-            cursor.execute(financials_sql, row)
-            inserted["Financials"] += 1
-            if i % 500 == 0:
-                print(f"Financials: {i} rows inserted...")
-        except Exception as e:
-            conn.rollback()
-            print(f"[ERROR] Financials row {i} failed: {e}")
-            error_log(e, i+1, row, csv_path)  # Log the error
-            sys.exit(1)
-    conn.commit()
-    print(f"Done. Inserted {inserted['Financials']} records into Financials")
-
+    try:
+        cursor.executemany(financials_sql, financials_rows)
+        print(f"Inserted {cursor.rowcount} Financials rows.")
+        inserted["Financials"] = cursor.rowcount
+    except Exception as e:
+        conn.rollback()
+        failed_index = cursor.rowcount  # index of failing row
+        bad_row = financials_rows[failed_index]
+        print("[ERROR] Financials batch insert failed:", e)
+        print("Failing row index:", failed_index)
+        print("Failing row data:", bad_row)
+        error_log(e, failed_index, bad_row, csv_path)  # Log the error
+        sys.exit(1)
+    
+    # Insert into Academics table
     print("Inserting into Academics...")
-    for i, row in enumerate(academics_rows, start=1):
-        cursor.execute(check_sql, (row[0],))
-        if cursor.fetchone() is None:
-            continue
-        try:
-            cursor.execute(academics_sql, row)
-            inserted["Academics"] += 1
-            if i % 500 == 0:
-                print(f"Academics: {i} rows inserted...")
-        except Exception as e:
-            conn.rollback()
-            print(f"[ERROR] Academics row {i} failed: {e}")
-            error_log(e, i+1, row, csv_path)  # Log the error
-            sys.exit(1)
+    try:    
+        cursor.executemany(academics_sql, academics_rows)
+        print(f"Inserted {cursor.rowcount} Academics rows.")
+        inserted["Academics"] = cursor.rowcount
+    except Exception as e:
+        conn.rollback()
+        failed_index = cursor.rowcount  # index of failing row
+        bad_row = academics_rows[failed_index]
+        print("[ERROR] Academics batch insert failed:", e)
+        print("Failing row index:", failed_index)
+        print("Failing row data:", bad_row)
+        error_log(e, failed_index, bad_row, csv_path)  # Log the error
+        sys.exit(1)
+
+    # Commit all inserts
     conn.commit()
-    print(f"Done. Inserted {inserted['Academics']} records into Academics")
     cursor.close()
     conn.close()
     print(f"All insertions done for year {year}.")
