@@ -15,6 +15,7 @@ from datetime import datetime
 import sys
 import pandas as pd
 import psycopg
+import credentials
 
 
 def clean(value):
@@ -110,10 +111,10 @@ def main():
 
     # Connect to the database
     conn = psycopg.connect(
-        host="debprodserver.postgres.database.azure.com",
-        dbname="",
-        user="",
-        password=""
+        host=credentials.DB_HOST,
+        dbname=credentials.DB_NAME,
+        user=credentials.DB_USER,
+        password=credentials.DB_PASSWORD
     )
     cursor = conn.cursor()
 

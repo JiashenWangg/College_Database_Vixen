@@ -3,7 +3,7 @@ Update accredagency in Institutions table and
 Batch insert data for yearly Students, Financials, and Academics tables
 
 Usage:
-    python load-scorecard.py ../data/scorecard/scorecard_2019.csv
+    python  ../data/scorecard/scorecard_2019.csv
     python load-scorecard.py ../data/scorecard/scorecard_2020.csv
     python load-scorecard.py ../data/scorecard/scorecard_2021.csv
     python load-scorecard.py ../data/scorecard/scorecard_2022.csv
@@ -16,6 +16,7 @@ from datetime import datetime
 import sys
 import pandas as pd
 import psycopg
+import credentials
 
 
 def clean(value):
@@ -182,10 +183,10 @@ def main():
 
     # Connect to the database
     conn = psycopg.connect(
-        host="debprodserver.postgres.database.azure.com",
-        dbname="",
-        user="",
-        password=""
+        host=credentials.DB_HOST,
+        dbname=credentials.DB_NAME,
+        user=credentials.DB_USER,
+        password=credentials.DB_PASSWORD
     )
     cursor = conn.cursor()
 
