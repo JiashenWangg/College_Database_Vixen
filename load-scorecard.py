@@ -3,7 +3,7 @@ Update accredagency in Institutions table and
 Batch insert data for yearly Students, Financials, and Academics tables
 
 Usage:
-    python  ../data/scorecard/scorecard_2019.csv
+    python load-scorecard.py ../data/scorecard/scorecard_2019.csv
     python load-scorecard.py ../data/scorecard/scorecard_2020.csv
     python load-scorecard.py ../data/scorecard/scorecard_2021.csv
     python load-scorecard.py ../data/scorecard/scorecard_2022.csv
@@ -190,6 +190,13 @@ def main():
     )
     cursor = conn.cursor()
 
+    # Fetch valid institution_ids
+    cursor.execute("SELECT institution_id FROM Institutions")
+    valid_ids = {row[0] for row in cursor.fetchall()}
+
+    # Filter accredagency rows to only valid institution_ids
+    accred_rows = [row for row in accred_rows if row[1] in valid_ids]
+
     # Batch update accredagency in Institutions table
     print("Updating accredagency in Institutions...")
     try:
@@ -203,8 +210,6 @@ def main():
         sys.exit(1)
 
     # Fetch valid institution_ids
-    cursor.execute("SELECT institution_id FROM Institutions")
-    valid_ids = {row[0] for row in cursor.fetchall()}
     students_rows = [row for row in students_rows if row[0] in valid_ids]
     financials_rows = [row for row in financials_rows if row[0] in valid_ids]
     academics_rows = [row for row in academics_rows if row[0] in valid_ids]
@@ -222,6 +227,9 @@ def main():
         conn.rollback()
         failed_index = cursor.rowcount  # index of failing row
         bad_row = students_rows[failed_index]
+        print("[ERROR] Students batch insert failed:", e)
+        print("Failing row index:", failed_index)
+        print("Failing row data:", bad_row)
         error_log(e, failed_index, bad_row, csv_path)  # Log the error
         sys.exit(1)
 
