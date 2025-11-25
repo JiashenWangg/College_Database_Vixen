@@ -7,14 +7,13 @@ This project creates a comprehensive PostgreSQL database for tracking college an
 ## Database Purpose
 
 The database consolidates data from two primary sources:
-- **IPEDS (Integrated Postsecondary Education Data System)** - Institutional characteristics
-- **College Scorecard** - Annual performance metrics (2018-2021)
+- **IPEDS (Integrated Postsecondary Education Data System)** - Institutional characteristics (2019-2022)
+- **College Scorecard** - Annual performance metrics (2019-2022)
 
 This allows users to:
 - Compare colleges based on admissions rates, costs, and outcomes
 - Track trends in tuition, student demographics, and academic offerings over time
 - Identify colleges by location, Carnegie classification, and institutional control
-- Analyze student loan default rates and first-generation student populations
 - Evaluate faculty salaries and student-to-faculty ratios
 
 ## Database Schema
@@ -63,9 +62,9 @@ CREATE TABLE Institutions (
    control INT CHECK (control IN (1, 2, 3)), --- 1=Public, 2=Private nonprofit, 3=Proprietary
    CCbasic INT CHECK (CCbasic <= 33), --- Carnegie classifier
    region INT CHECK (region BETWEEN 0 AND 9),
-   csba INT, --- Core Based Statistical Area
-   cba INT, --- Combined Statistical Area
-   county_fips INT, --- County FIPS code
+   csba TEXT, --- Core Based Statistical Area
+   cba TEXT, --- Combined Statistical Area
+   county_fips TEXT, --- County FIPS code
    city TEXT,
    state TEXT CHECK (LENGTH(state) = 2),
    address TEXT,
@@ -77,7 +76,7 @@ CREATE TABLE Institutions (
 ```
 
 **Data Source**: IPEDS `hd2022.csv` file
-- **Note**: The `accredagency` column requires data from a separate accreditation file (currently loaded with a placeholder value)
+- **Note**: The `accredagency` column requires data from College Scorecard data
 
 ### Students Table
 ```sql
@@ -119,7 +118,7 @@ CREATE TABLE Academics (
    year INT CHECK (year > 0 AND year <= EXTRACT(YEAR FROM CURRENT_DATE)),
    preddeg TEXT CHECK (preddeg BETWEEN 0 AND 4),
    highdeg INT CHECK (highdeg BETWEEN 0 AND 4),
-   stufacr FLOAT CHECK (stufacr >= 0 AND stufacr <= 1),
+   stufacr FLOAT CHECK (stufacr >= 0),
    PRIMARY KEY (institution_id, year)
 );
 ```
@@ -139,18 +138,21 @@ CREATE TABLE Academics (
 
 2. **Database Connection**:
    - PostgreSQL database on Azure
-   - Update connection credentials in both loading scripts
+   - Create your own credentials.py to store your DB connection info
 
 3. **Required Data Files**:
-   - `hd2022.csv` - IPEDS institutional directory
-   - `scorecard_2019.csv` - College Scorecard 2018 data
-   - `scorecard_2020.csv` - College Scorecard 2019 data
-   - `scorecard_2021.csv` - College Scorecard 2020 data
-   - `scorecard_2022.csv` - College Scorecard 2021 data
+   - `hd2019.csv` - IPEDS 2019 data
+   - `hd2020.csv` - IPEDS 2020 data
+   - `hd2021.csv` - IPEDS 2021 data
+   - `hd2022.csv` - IPEDS 2022 data
+   - `scorecard_2019.csv` - College Scorecard 2019 data
+   - `scorecard_2020.csv` - College Scorecard 2020 data
+   - `scorecard_2021.csv` - College Scorecard 2021 data
+   - `scorecard_2022.csv` - College Scorecard 2022 data
 
 ### Step 1: Create Database Schema
 
-Run the SQL commands in `part1.ipynb` to create all tables with proper constraints and relationships.
+Run the SQL commands in `create_tables.ipynb` to create all tables with proper constraints and relationships.
 
 ```bash
 # In Jupyter notebook
@@ -163,59 +165,44 @@ Then execute the cell containing all CREATE TABLE statements.
 ### Step 2: Load IPEDS Data (Institutions Table)
 
 ```bash
+python load-ipeds.py hd2019.csv
+python load-ipeds.py hd2020.csv
+python load-ipeds.py hd2021.csv
 python load-ipeds.py hd2022.csv
 ```
+Expected Runtime: 1s/script
 
 **What this does**:
 - Reads the IPEDS institutional characteristics file
-- Extracts 15 columns mapping to the Institutions table schema
 - Inserts data for all U.S. postsecondary institutions
-- **Note**: Currently loads `accredagency` as NULL - requires separate IPEDS accreditation file
-
-**Column Mapping**:
-- `OPEID` → `institution_id`
-- `INSTNM` → `name`
-- `CONTROL` → `control`
-- `CCBASIC` → `CCbasic`
-- `OBEREG` → `region`
-- `CBSA` → `csba`
-- `CSA` → `cba`
-- `COUNTYCD` → `county_fips`
-- `CITY` → `city`
-- `STABBR` → `state`
-- `ADDR` → `address`
-- `ZIP` → `zip`
-- `LATITUDE` → `latitude`
-- `LONGITUD` → `longitude`
+- **Note**: Currently loads `accredagency` as NULL - will be updated after running load-scorecard.py 
 
 ### Step 3: Load College Scorecard Data
 
-**Option A - Single File**:
 ```bash
+python load-scorecard.py scorecard_2019.csv
+python load-scorecard.py scorecard_2020.csv
 python load-scorecard.py scorecard_2021.csv
+python load-scorecard.py scorecard_2022.csv
 ```
-
-**Option B - All Files at Once**:
-```bash
-python load-scorecard.py .
-```
+Expected Runtime: 6s/script
 
 **What this does**:
-- Automatically extracts the year from the filename (e.g., `hd2022.csv` → year = 2022)
+- Automatically extracts the year from the filename (e.g., `MERGED_2022.csv` → year = 2022)
 - Loads data into Students, Financials, and Academics tables simultaneously
 - Handles missing data by converting invalid values to NULL
 - Provides detailed error reporting for any failed insertions
 
 **Important File Naming Convention**:
-⚠️ **Files MUST follow the pattern**: `MERGED<YEAR>.csv`
+⚠️ **Files MUST follow the pattern**: `_<YEAR>.csv`
 
 Examples of valid filenames:
-- ✅ `cd2022.csv`
+- ✅ `MERGED_2022.csv`
 - ✅ `scorecard_2021.csv` 
 - ❌ `MERGED_2021_PP.csv` (Won't work)
 
 
-The years need to be run sequentially in chronological order otherwise the accredagnecy fields will not be valid.
+**The years need to be run sequentially in chronological order otherwise the accredagnecy fields will not be up-to-date.**
 
 ## Data Relationships
 
@@ -231,7 +218,7 @@ Institutions (1) ──────< (Many) Students
 
 - Each institution can have **multiple years** of student, financial, and academic data
 - Each student/financial/academic record **must reference** a valid institution
-- The `institution_id` (OPEID code) serves as the linking key across all tables
+- The `institution_id` (UNITID code) serves as the linking key across all tables
 
 ### Data Integrity Constraints
 
@@ -239,7 +226,6 @@ All tables include CHECK constraints to ensure data quality:
 - Rates and percentages must be between 0 and 1
 - Years cannot be in the future
 - Test scores must be within valid ranges
-- Geographic codes must have proper length
 - Financial values cannot be negative
 
 
@@ -263,15 +249,6 @@ All tables include CHECK constraints to ensure data quality:
    JOIN Students s ON i.institution_id = s.institution_id
    WHERE s.year = 2021 AND s.adm_rate > 0.5
    ORDER BY s.adm_rate DESC;
-   ```
-
-3. **Analyze Student Loan Default Rates**:
-   ```sql
-   SELECT i.name, s.cdr3, s.avg_family_income
-   FROM Institutions i
-   JOIN Students s ON i.institution_id = s.institution_id
-   WHERE s.year = 2021
-   ORDER BY s.cdr3;
    ```
 
 ### For Admissions Professionals
@@ -308,15 +285,11 @@ All tables include CHECK constraints to ensure data quality:
 
 ## Known Limitations & Future Work
 
-1. **Accreditation Data**: 
-   - The `accredagency` column in Institutions table currently contains placeholder data
-   - Future work: Load from IPEDS accreditation file to populate actual accrediting agencies
-
-2. **Year Coverage**: 
+1. **Year Coverage**: 
    - Current dataset covers 2018-2021
    - Can be extended by loading additional MERGED files following the naming convention
 
-3. **Data Completeness**:
+2. **Data Completeness**:
    - Some institutions may have missing data for certain years or metrics
    - The loading scripts handle missing values by converting to NULL
 
@@ -324,22 +297,14 @@ All tables include CHECK constraints to ensure data quality:
 
 ### Common Issues
 
-1. **"integer out of range" error**:
-   - Ensure your Institutions table uses TEXT for `institution_id`, not INT
-
-
-2. **Foreign key constraint violations**:
+1. **Foreign key constraint violations**:
    - Run `load-ipeds.py` BEFORE `load-scorecard.py`
    - Scorecard data references institutions that must exist first
 
-3. **"Year not found in filename" error**:
+2. **"Year not found in filename" error**:
    - Verify your College Scorecard files follow the `scorecard_{year}.csv` pattern
    - Check that files aren't renamed
 
-4. **Connection timeout**:
-   - These are large files (50-200MB each)
-   - Allow 5-15 minutes per file for loading
-   - Check your network connection to Azure
 
 ## Project Structure
 
@@ -349,11 +314,17 @@ College_Database_Vixen/
 ├── create_tables.ipynb         # Database schema definition
 ├── load-ipeds.py               # IPEDS data loader
 ├── load-scorecard.py           # College Scorecard data loader
-├── hd2022.csv                  # IPEDS institutional directory
-├── MERGED2019.csv              # College Scorecard 2018
-├── MERGED2020.csv              # College Scorecard 2019
-├── MERGED2021.csv              # College Scorecard 2020
-└── MERGED2022.csv              # College Scorecard 2021
+├── .credentials.py             # Store DB link info
+├── error_log.txt               # Will be initiated after encountering an error
+├── data/
+   ├── hd2019.csv                  # IPEDS 2019
+   ├── hd2020.csv                  # IPEDS 2020
+   ├── hd2021.csv                  # IPEDS 2021
+   ├── hd2022.csv                  # IPEDS 2022
+   ├── MERGED2019.csv              # College Scorecard 2018
+   ├── MERGED2020.csv              # College Scorecard 2019
+   ├── MERGED2021.csv              # College Scorecard 2020
+   └── MERGED2022.csv              # College Scorecard 2021
 ```
 
 ## Contributors
